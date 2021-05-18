@@ -18,13 +18,32 @@ import android.provider.MediaStore;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.Toast;
+
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.FieldValue;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.UUID;
 
 public class UploadActivity extends AppCompatActivity {
     Bitmap selectedImage;
     ImageView imageView;
     EditText commentText;
+    private FirebaseStorage firebaseStorage;
+    private StorageReference storageReference;
+    Uri imageData;
+    private FirebaseFirestore firebaseFirestore;
+    private FirebaseAuth firebaseAuth;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,8 +52,65 @@ public class UploadActivity extends AppCompatActivity {
 
         imageView = findViewById(R.id.imageView);
         commentText = findViewById(R.id.commentText);
+
+        firebaseStorage = FirebaseStorage.getInstance();
+        storageReference = firebaseStorage.getReference();
+        firebaseFirestore = FirebaseFirestore.getInstance();
+        firebaseAuth = FirebaseAuth.getInstance();
     }
     public void upload(View view){
+        if (imageData != null){
+
+            UUID uuid = UUID.randomUUID();
+            final String imageName = "images/"+uuid+".jpg";
+
+            storageReference.child(imageName).putFile(imageData).addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+                @Override
+                public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+                    StorageReference newReference = FirebaseStorage.getInstance().getReference(imageName);
+                    newReference.getDownloadUrl().addOnSuccessListener(new OnSuccessListener<Uri>() {
+                        @Override
+                        public void onSuccess(Uri uri) {
+                            String downloadUrl = uri.toString();
+
+                            FirebaseUser firebaseUser = firebaseAuth.getCurrentUser();
+                            String userEmail = firebaseUser.getEmail();
+
+                            String comment = commentText.getText().toString();
+
+                            HashMap<String, Object> postData = new HashMap<>();
+                            postData.put("useremail",userEmail);
+                            postData.put("downloadurl",downloadUrl);
+                            postData.put("comment",comment);
+                            postData.put("date", FieldValue.serverTimestamp());
+                            firebaseFirestore.collection("Posts").add(postData).addOnSuccessListener(new OnSuccessListener<DocumentReference>() {
+                                @Override
+                                public void onSuccess(DocumentReference documentReference) {
+                                    Intent intent = new Intent(UploadActivity.this,FeedActivity.class);
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                    startActivity(intent);
+                                }
+                            }).addOnFailureListener(new OnFailureListener() {
+                                @Override
+                                public void onFailure(@NonNull Exception e) {
+
+                                }
+                            });
+
+
+                        }
+                    });
+                }
+            }).addOnFailureListener(new OnFailureListener() {
+                @Override
+                public void onFailure(@NonNull Exception e) {
+                    Toast.makeText(UploadActivity.this,e.getLocalizedMessage().toString(),Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
+
+
 
     }
     public void selectImage(View view){
@@ -62,7 +138,7 @@ public class UploadActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
 
         if (requestCode == 2 && resultCode == RESULT_OK && data != null){
-            Uri imageData = data.getData();
+            imageData = data.getData();
             try {
                 if (Build.VERSION.SDK_INT >= 28){
                     ImageDecoder.Source source = ImageDecoder.createSource(this.getContentResolver(),imageData);
